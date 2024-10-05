@@ -1,15 +1,20 @@
 from typing import Optional, Set, Tuple, TypeVar
 
-from django.contrib.auth import get_user_model
-from django.contrib.auth.models import AbstractBaseUser
+
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from django.contrib.auth.models import AbstractBaseUser
+    from .models import TokenUser
+    from .tokens import Token
+    AuthUser = TypeVar("AuthUser", AbstractBaseUser, TokenUser)
+
 from django.utils.translation import gettext_lazy as _
 from rest_framework import HTTP_HEADER_ENCODING, authentication
 from rest_framework.request import Request
 
 from .exceptions import AuthenticationFailed, InvalidToken, TokenError
-from .models import TokenUser
+
 from .settings import api_settings
-from .tokens import Token
 from .utils import get_md5_hash_password
 
 AUTH_HEADER_TYPES = api_settings.AUTH_HEADER_TYPES
@@ -20,8 +25,6 @@ if not isinstance(api_settings.AUTH_HEADER_TYPES, (list, tuple)):
 AUTH_HEADER_TYPE_BYTES: Set[bytes] = {
     h.encode(HTTP_HEADER_ENCODING) for h in AUTH_HEADER_TYPES
 }
-
-AuthUser = TypeVar("AuthUser", AbstractBaseUser, TokenUser)
 
 
 class JWTAuthentication(authentication.BaseAuthentication):
@@ -35,9 +38,10 @@ class JWTAuthentication(authentication.BaseAuthentication):
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
+        from django.contrib.auth import get_user_model
         self.user_model = get_user_model()
 
-    def authenticate(self, request: Request) -> Optional[Tuple[AuthUser, Token]]:
+    def authenticate(self, request: Request) -> Optional[Tuple['AuthUser', 'Token']]:
         header = self.get_header(request)
         if header is None:
             return None
@@ -92,7 +96,7 @@ class JWTAuthentication(authentication.BaseAuthentication):
 
         return parts[1]
 
-    def get_validated_token(self, raw_token: bytes) -> Token:
+    def get_validated_token(self, raw_token: bytes) -> 'Token':
         """
         Validates an encoded JSON web token and returns a validated token
         wrapper object.
@@ -117,7 +121,7 @@ class JWTAuthentication(authentication.BaseAuthentication):
             }
         )
 
-    def get_user(self, validated_token: Token) -> AuthUser:
+    def get_user(self, validated_token: 'Token') -> 'AuthUser':
         """
         Attempts to find and return a user using the given validated token.
         """
@@ -136,7 +140,7 @@ class JWTAuthentication(authentication.BaseAuthentication):
 
         if api_settings.CHECK_REVOKE_TOKEN:
             if validated_token.get(
-                api_settings.REVOKE_TOKEN_CLAIM
+                    api_settings.REVOKE_TOKEN_CLAIM
             ) != get_md5_hash_password(user.password):
                 raise AuthenticationFailed(
                     _("The user's password has been changed."), code="password_changed"
@@ -151,7 +155,7 @@ class JWTStatelessUserAuthentication(JWTAuthentication):
     token provided in a request header without performing a database lookup to obtain a user instance.
     """
 
-    def get_user(self, validated_token: Token) -> AuthUser:
+    def get_user(self, validated_token: 'Token') -> 'AuthUser':
         """
         Returns a stateless user object which is backed by the given validated
         token.
@@ -167,7 +171,7 @@ class JWTStatelessUserAuthentication(JWTAuthentication):
 JWTTokenUserAuthentication = JWTStatelessUserAuthentication
 
 
-def default_user_authentication_rule(user: AuthUser) -> bool:
+def default_user_authentication_rule(user: 'AuthUser') -> bool:
     # Prior to Django 1.10, inactive users could be authenticated with the
     # default `ModelBackend`.  As of Django 1.10, the `ModelBackend`
     # prevents inactive users from authenticating.  App designers can still
